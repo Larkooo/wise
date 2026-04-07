@@ -193,6 +193,51 @@ human at the keyboard).
 
 ## Technical blockers + how we unblock them
 
+### Personal API tokens cannot reach card endpoints
+**Discovered live during Phase 1.** The user's personal API token returns:
+- `403 Unauthorized` on `GET /v3/spend/profiles/{p}/cards` (PSD2 restriction).
+- `404 Not Found` on `GET /twcard-data/v1/clientSideEncryption/fetchEncryptingKey`
+  (route hidden because the token type is wrong).
+
+Per the docs, the card and `fetchEncryptingKey` endpoints require an **OAuth
+2.0 User Access Token** obtained via `authorization_code` or
+`registration_code` grant. These are partner-tier credentials — Wise has to
+provision a `client_id` and `client_secret` for the integration before any
+of this works.
+
+**What this means for shipping:**
+
+- **The CLI's plumbing is fine.** Auth, sandbox, audit, JWE, dispatch — all
+  reusable.
+- **The "agent fetches its own PAN over JWE" flow is gated on partner
+  OAuth.** It will not work for a personal-token user, today.
+- **The "agent has supervised card access" story is not gated.** The user
+  can still issue a card via wise.com (mobile or web), the CLI provides
+  sandbox + spend-limit + audit + manual-paste fetch — see
+  [Option C](#option-c--manual-paste-flow-shipping-now) below.
+
+Three realistic paths forward:
+
+#### Option A — sandbox + supervised PAN
+The user creates the card via wise.com. The CLI never holds the PAN; it
+only enforces the sandbox, spend limits (via the sandbox config, not the
+Wise API), audit logging, and approval gates. Smallest scope, fully works
+today, no Wise approvals needed.
+
+#### Option B — full OAuth 2.0 user-token flow
+`wise auth oauth init --client-id ... --client-secret ... --redirect-uri ...`
+opens a browser, exchanges the auth code, stores the user token in the
+keychain, handles refresh. Unblocks every card endpoint **if** Wise grants
+client credentials. Tracked as a future phase pending partner conversation.
+
+#### Option C — manual-paste flow (shipping now)
+The user pastes the PAN/CVV/expiry once, encrypted at rest by the JWE
+module to a CLI-managed RSA keypair stored in the OS keychain. `wise agent
+fetch` decrypts on demand under sandbox + audit + approval gates. The CLI
+never talks to Wise's sensitive endpoints. The PAN ends up at rest on the
+machine (option L4-2 in this document) — defensible *only* with the full
+sandbox + audit + escalation stack in place. Ships in PR #3.
+
 ### JWE is mandatory
 Wise's `/twcard-data/v1/sensitive-card-data/details` only accepts
 JWE-encrypted requests and only returns JWE-encrypted responses. From the
@@ -212,7 +257,10 @@ Implementation steps:
    the same CEK (direct encryption) or our registered private key.
 
 In Rust this is `rsa` + `aes-gcm` + `sha2` + `rand` + `base64`. ~300 LOC
-of careful code, no `openssl` dep. **In progress as Phase 1.**
+of careful code, no `openssl` dep. **Shipped in Phase 1** (`src/client/jose.rs`).
+The CLI debug subcommand `wise jose encrypt|decrypt|fetch-key` exercises the
+module. The fetch-key half currently 404s without partner OAuth — see the
+personal-token blocker section above.
 
 ### SCA is mandatory in EU/UK
 The sensitive details endpoint is SCA-protected for EEA accounts. The
@@ -225,17 +273,20 @@ Documented as a v2 gap.
 
 ## Phased plan
 
-| Phase | Scope                                                                                                       | Status  |
-|-------|-------------------------------------------------------------------------------------------------------------|---------|
-| 0     | Design lock-in — `AGENT.md` + `SANDBOX.md` on disk                                                          | **done** |
-| 1     | JWE module (`src/client/jose.rs`) + RFC vectors + `wise jose fetch-key`/`encrypt`/`decrypt` debug commands  | **in progress** |
-| 2     | Sandbox primitive (`src/sandbox/mod.rs`): config loading, dispatch gate, resource gate                     | pending |
-| 3     | `wise sandbox new/list/show/check/edit/delete/shell` commands                                               | pending |
-| 4     | Audit log + rate-limit ledger + per-command conditions                                                      | pending |
-| 5     | `wise agent init` (creates the agent profile + card + sandbox config in one wizard)                         | pending |
-| 6     | `wise agent fetch` (uses JWE module from phase 1, gated by sandbox)                                         | pending |
-| 7     | Escalation modes: `tty` and `command`                                                                       | pending |
-| 8     | Watchdog daemon (v2)                                                                                        | pending |
+| Phase | Scope                                                                                                                                    | Status      |
+|-------|------------------------------------------------------------------------------------------------------------------------------------------|-------------|
+| 0     | Design lock-in — `AGENT.md` + `SANDBOX.md` on disk                                                                                       | **done**    |
+| 1     | JWE module (`src/client/jose.rs`) + `wise jose fetch-key`/`encrypt`/`decrypt`                                                            | **done**    |
+| 2     | Sandbox primitive: TOML schema, glob matcher, dispatch + resource gates, audit log writer, rate limiter                                  | **done**    |
+| 3     | `wise sandbox new/list/show/check/edit/delete/shell/audit` commands                                                                      | **done**    |
+| 4     | Per-command conditions (rate limit, `--justify`, audit) + `--justify` global flag + `--sudo` `deny` mode                                 | **done**    |
+| 5a    | `wise agent init` — interactive wizard that creates the *sandbox + spend limits scaffold*. Card creation is delegated to wise.com.       | pending     |
+| 5b    | `wise agent paste` (Option C) — local-encrypt PAN/CVV/expiry to a keychain-stored RSA keypair                                            | pending     |
+| 6a    | `wise agent fetch` — decrypts the local-cached PAN under sandbox + audit + approval gates                                                | pending     |
+| 6b    | `wise agent fetch` — JWE round-trip to Wise (Option B, requires partner OAuth user token; out of scope until that's provisioned)         | deferred    |
+| 7     | Escalation modes: `tty` (terminal y/N) and `command` (external approver via stdin JSON)                                                  | pending     |
+| 8     | Watchdog daemon (v2)                                                                                                                     | deferred    |
+| 9     | Full OAuth 2.0 `authorization_code` flow in `wise auth oauth init` (unblocks 6b)                                                          | deferred    |
 
 ---
 

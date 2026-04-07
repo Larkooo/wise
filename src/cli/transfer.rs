@@ -142,9 +142,13 @@ pub async fn run(cmd: TransferCmd, ctx: &Ctx) -> Result<()> {
             offset,
         } => {
             let mut q: Vec<(String, String)> = Vec::new();
-            let p = profile.or(ctx.config.default_profile);
-            if let Some(p) = p {
+            // Resolve through the sandbox gate so an explicit --profile that
+            // points outside the sandbox's allow list is rejected here.
+            if let Ok(p) = ctx.resolve_profile(profile) {
                 q.push(("profile".into(), p.to_string()));
+            } else if profile.is_some() || ctx.config.default_profile.is_some() {
+                // Sandbox rejected an explicit profile — propagate the error.
+                ctx.resolve_profile(profile)?;
             }
             if let Some(s) = status {
                 q.push(("status".into(), s));
@@ -184,9 +188,7 @@ pub async fn run(cmd: TransferCmd, ctx: &Ctx) -> Result<()> {
             profile,
         } => {
             ctx.confirm_prod("fund a transfer")?;
-            let p = profile.or(ctx.config.default_profile).ok_or_else(|| {
-                anyhow::anyhow!("--profile required (or set default-profile)")
-            })?;
+            let p = ctx.resolve_profile(profile)?;
             let body = json!({ "type": r#type });
             let v: Value = ctx
                 .client

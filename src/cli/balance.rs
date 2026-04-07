@@ -107,7 +107,7 @@ pub enum BalanceCmd {
 pub async fn run(cmd: BalanceCmd, ctx: &Ctx) -> Result<()> {
     match cmd {
         BalanceCmd::List { types, profile } => {
-            let p = profile_or_required(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
             let v: Value = ctx
                 .client
                 .get_query(&format!("/v4/profiles/{p}/balances"), &[("types", types)])
@@ -115,7 +115,8 @@ pub async fn run(cmd: BalanceCmd, ctx: &Ctx) -> Result<()> {
             output::print(&v, ctx.output());
         }
         BalanceCmd::Get { balance_id, profile } => {
-            let p = profile_or_required(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
+            ctx.check_balance(balance_id)?;
             let v: Value = ctx
                 .client
                 .get(&format!("/v4/profiles/{p}/balances/{balance_id}"))
@@ -128,7 +129,7 @@ pub async fn run(cmd: BalanceCmd, ctx: &Ctx) -> Result<()> {
             name,
             profile,
         } => {
-            let p = profile_or_required(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
             ctx.confirm_prod("create a balance")?;
             let body = json!({
                 "currency": currency.to_uppercase(),
@@ -142,7 +143,8 @@ pub async fn run(cmd: BalanceCmd, ctx: &Ctx) -> Result<()> {
             output::print(&v, ctx.output());
         }
         BalanceCmd::Delete { balance_id, profile } => {
-            let p = profile_or_required(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
+            ctx.check_balance(balance_id)?;
             ctx.confirm_prod("delete a balance")?;
             let v = ctx
                 .client
@@ -158,7 +160,9 @@ pub async fn run(cmd: BalanceCmd, ctx: &Ctx) -> Result<()> {
             quote,
             profile,
         } => {
-            let p = profile_or_required(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
+            ctx.check_balance(from)?;
+            ctx.check_balance(to)?;
             ctx.confirm_prod("move money between balances")?;
             let mut body = json!({
                 "sourceBalanceId": from,
@@ -185,7 +189,7 @@ pub async fn run(cmd: BalanceCmd, ctx: &Ctx) -> Result<()> {
             currency,
             profile,
         } => {
-            let p = profile_or_required(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
             // Sandbox top-up endpoint shape from docs.
             let body = json!({
                 "profileId": p,
@@ -197,7 +201,7 @@ pub async fn run(cmd: BalanceCmd, ctx: &Ctx) -> Result<()> {
             output::print(&v, ctx.output());
         }
         BalanceCmd::Total { currency, profile } => {
-            let p = profile_or_required(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
             let v: Value = ctx
                 .client
                 .get(&format!(
@@ -211,10 +215,3 @@ pub async fn run(cmd: BalanceCmd, ctx: &Ctx) -> Result<()> {
     Ok(())
 }
 
-fn profile_or_required(ctx: &Ctx, override_profile: Option<i64>) -> Result<i64> {
-    if let Some(p) = override_profile {
-        Ok(p)
-    } else {
-        ctx.require_profile()
-    }
-}

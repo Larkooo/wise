@@ -79,9 +79,7 @@ pub async fn run(cmd: QuoteCmd, ctx: &Ctx) -> Result<()> {
             target_account,
             profile,
         } => {
-            let p = profile
-                .or(ctx.config.default_profile)
-                .ok_or_else(|| anyhow::anyhow!("--profile required (or set default-profile)"))?;
+            let p = ctx.resolve_profile(profile)?;
             ctx.confirm_prod("create a quote")?;
             let body = build_quote_body(
                 &source,
@@ -119,9 +117,7 @@ pub async fn run(cmd: QuoteCmd, ctx: &Ctx) -> Result<()> {
             output::print(&v, ctx.output());
         }
         QuoteCmd::Get { quote_id, profile } => {
-            let p = profile.or(ctx.config.default_profile).ok_or_else(|| {
-                anyhow::anyhow!("--profile required (or set default-profile)")
-            })?;
+            let p = ctx.resolve_profile(profile)?;
             let v: Value = ctx
                 .client
                 .get(&format!("/v3/profiles/{p}/quotes/{quote_id}"))
@@ -135,9 +131,7 @@ pub async fn run(cmd: QuoteCmd, ctx: &Ctx) -> Result<()> {
             pay_out,
             profile,
         } => {
-            let p = profile.or(ctx.config.default_profile).ok_or_else(|| {
-                anyhow::anyhow!("--profile required (or set default-profile)")
-            })?;
+            let p = ctx.resolve_profile(profile)?;
             let mut body = json!({});
             if let Some(t) = target_account {
                 body["targetAccount"] = json!(t);

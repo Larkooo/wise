@@ -5,12 +5,15 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use serde_json::json;
 
 mod cli;
 mod client;
 mod config;
 mod output;
+mod sandbox;
 
+use cli::sandbox::SandboxCmd;
 use cli::{
     activity::ActivityCmd, auth::AuthCmd, balance::BalanceCmd, card::CardCmd,
     card_order::CardOrderCmd, config_cmd::ConfigCmd, currency::CurrencyCmd, docs::DocsCmd,
@@ -121,6 +124,11 @@ enum TopCmd {
         #[command(subcommand)]
         cmd: JoseCmd,
     },
+    /// Sandbox policies for scoped agent CLI access (see SANDBOX.md).
+    Sandbox {
+        #[command(subcommand)]
+        cmd: SandboxCmd,
+    },
 }
 
 #[tokio::main]
@@ -147,7 +155,33 @@ async fn main() {
 }
 
 async fn dispatch(cmd: TopCmd, ctx: &Ctx) -> Result<()> {
-    match cmd {
+    // Sandbox dispatch + condition gates run *before* the command handler
+    // so a denied command never establishes a network connection.
+    let cmd_path = top_cmd_path(&cmd);
+    let cmd_args = top_cmd_args(&cmd);
+    let mut audit_handle: Option<sandbox::AuditEntry> = None;
+    if let Some(sb) = &ctx.sandbox {
+        // 1. Sandbox-management commands cannot run from inside an active
+        //    sandbox — that would let an agent rewrite its own policy.
+        if cmd_path.starts_with("sandbox.") {
+            return Err(anyhow::anyhow!(
+                "sandbox_denied: `{cmd_path}` cannot be invoked from inside an active sandbox \
+                 (sandbox = `{}`)",
+                sb.name()
+            ));
+        }
+        // 2. Dispatch gate.
+        sb.check_command(&cmd_path, &cmd_args)?;
+        // 3. Per-command conditions (rate limit, --justify, audit).
+        let args_json = sandbox_args_json(&cmd_args);
+        audit_handle = sb.enforce_conditions(
+            &cmd_path,
+            &args_json,
+            ctx.args.justify.as_deref(),
+        )?;
+    }
+
+    let result = match cmd {
         TopCmd::Auth { cmd } => cli::auth::run(cmd, ctx).await,
         TopCmd::Config { cmd } => cli::config_cmd::run(cmd, ctx).await,
         TopCmd::Profile { cmd } => cli::profile::run(cmd, ctx).await,
@@ -164,7 +198,79 @@ async fn dispatch(cmd: TopCmd, ctx: &Ctx) -> Result<()> {
         TopCmd::Docs { cmd } => cli::docs::run(cmd, ctx).await,
         TopCmd::Simulate { cmd } => cli::simulate::run(cmd, ctx).await,
         TopCmd::Jose { cmd } => cli::jose::run(cmd, ctx).await,
+        TopCmd::Sandbox { cmd } => cli::sandbox::run(cmd, ctx).await,
+    };
+
+    if let Some(handle) = audit_handle {
+        match &result {
+            Ok(()) => {
+                let _ = handle.complete(json!({"ok": true}));
+            }
+            Err(e) => {
+                let _ = handle.fail(&e.to_string());
+            }
+        }
     }
+
+    result
+}
+
+/// Render the top-level command's sandbox path. The thin wrappers in
+/// sandbox::path own the per-leaf strings; this function just dispatches.
+fn top_cmd_path(cmd: &TopCmd) -> String {
+    use sandbox::Cmd;
+    sandbox::command_path(match cmd {
+        TopCmd::Auth { cmd } => Cmd::Auth(cmd),
+        TopCmd::Config { cmd } => Cmd::Config(cmd),
+        TopCmd::Profile { cmd } => Cmd::Profile(cmd),
+        TopCmd::Balance { cmd } => Cmd::Balance(cmd),
+        TopCmd::Quote { cmd } => Cmd::Quote(cmd),
+        TopCmd::Recipient { cmd } => Cmd::Recipient(cmd),
+        TopCmd::Transfer { cmd } => Cmd::Transfer(cmd),
+        TopCmd::Card { cmd } => Cmd::Card(cmd),
+        TopCmd::CardOrder { cmd } => Cmd::CardOrder(cmd),
+        TopCmd::Webhook { cmd } => Cmd::Webhook(cmd),
+        TopCmd::Rate { cmd } => Cmd::Rate(cmd),
+        TopCmd::Activity { cmd } => Cmd::Activity(cmd),
+        TopCmd::Currency { cmd } => Cmd::Currency(cmd),
+        TopCmd::Docs { cmd } => Cmd::Docs(cmd),
+        TopCmd::Simulate { cmd } => Cmd::Simulate(cmd),
+        TopCmd::Jose { cmd } => Cmd::Jose(cmd),
+        TopCmd::Sandbox { cmd } => Cmd::Sandbox(cmd),
+    })
+}
+
+/// Surface argument-aware deny constraints. Mostly empty — see
+/// sandbox::path::command_args.
+fn top_cmd_args(cmd: &TopCmd) -> Vec<(String, String)> {
+    use sandbox::Cmd;
+    sandbox::command_args(match cmd {
+        TopCmd::Auth { cmd } => Cmd::Auth(cmd),
+        TopCmd::Config { cmd } => Cmd::Config(cmd),
+        TopCmd::Profile { cmd } => Cmd::Profile(cmd),
+        TopCmd::Balance { cmd } => Cmd::Balance(cmd),
+        TopCmd::Quote { cmd } => Cmd::Quote(cmd),
+        TopCmd::Recipient { cmd } => Cmd::Recipient(cmd),
+        TopCmd::Transfer { cmd } => Cmd::Transfer(cmd),
+        TopCmd::Card { cmd } => Cmd::Card(cmd),
+        TopCmd::CardOrder { cmd } => Cmd::CardOrder(cmd),
+        TopCmd::Webhook { cmd } => Cmd::Webhook(cmd),
+        TopCmd::Rate { cmd } => Cmd::Rate(cmd),
+        TopCmd::Activity { cmd } => Cmd::Activity(cmd),
+        TopCmd::Currency { cmd } => Cmd::Currency(cmd),
+        TopCmd::Docs { cmd } => Cmd::Docs(cmd),
+        TopCmd::Simulate { cmd } => Cmd::Simulate(cmd),
+        TopCmd::Jose { cmd } => Cmd::Jose(cmd),
+        TopCmd::Sandbox { cmd } => Cmd::Sandbox(cmd),
+    })
+}
+
+fn sandbox_args_json(args: &[(String, String)]) -> serde_json::Value {
+    let mut m = serde_json::Map::new();
+    for (k, v) in args {
+        m.insert(k.clone(), serde_json::Value::String(v.clone()));
+    }
+    serde_json::Value::Object(m)
 }
 
 fn init_tracing(verbose: bool) {
