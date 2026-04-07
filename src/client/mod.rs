@@ -274,9 +274,12 @@ fn map_error(status: StatusCode, bytes: &[u8]) -> WiseError {
                     .join("; ");
                 (code, msg)
             } else if let Some(err) = map.get("error").and_then(|e| e.as_str()) {
+                // Wise uses both `error_description` (OAuth) and `message`
+                // (REST) to carry the human-readable text — prefer either.
                 let desc = map
                     .get("error_description")
                     .and_then(|d| d.as_str())
+                    .or_else(|| map.get("message").and_then(|d| d.as_str()))
                     .unwrap_or("")
                     .to_string();
                 (err.to_string(), desc)
