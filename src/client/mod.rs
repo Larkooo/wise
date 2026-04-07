@@ -20,6 +20,7 @@ use uuid::Uuid;
 use crate::config::Env;
 
 pub mod error;
+pub mod jose;
 pub mod sse;
 
 pub use error::WiseError;

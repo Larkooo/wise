@@ -14,7 +14,7 @@ mod output;
 use cli::{
     activity::ActivityCmd, auth::AuthCmd, balance::BalanceCmd, card::CardCmd,
     card_order::CardOrderCmd, config_cmd::ConfigCmd, currency::CurrencyCmd, docs::DocsCmd,
-    profile::ProfileCmd, quote::QuoteCmd, rate::RateCmd, recipient::RecipientCmd,
+    jose::JoseCmd, profile::ProfileCmd, quote::QuoteCmd, rate::RateCmd, recipient::RecipientCmd,
     simulate::SimulateCmd, transfer::TransferCmd, webhook::WebhookCmd,
 };
 use cli::{Ctx, GlobalArgs};
@@ -115,6 +115,12 @@ enum TopCmd {
         #[command(subcommand)]
         cmd: SimulateCmd,
     },
+    /// JWE debug helpers (fetch Wise's encryption key, encrypt, decrypt).
+    /// Used by the agent-card flow under the hood; see AGENT.md.
+    Jose {
+        #[command(subcommand)]
+        cmd: JoseCmd,
+    },
 }
 
 #[tokio::main]
@@ -157,6 +163,7 @@ async fn dispatch(cmd: TopCmd, ctx: &Ctx) -> Result<()> {
         TopCmd::Currency { cmd } => cli::currency::run(cmd, ctx).await,
         TopCmd::Docs { cmd } => cli::docs::run(cmd, ctx).await,
         TopCmd::Simulate { cmd } => cli::simulate::run(cmd, ctx).await,
+        TopCmd::Jose { cmd } => cli::jose::run(cmd, ctx).await,
     }
 }
 

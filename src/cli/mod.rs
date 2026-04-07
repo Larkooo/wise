@@ -16,6 +16,7 @@ pub mod card_order;
 pub mod config_cmd;
 pub mod currency;
 pub mod docs;
+pub mod jose;
 pub mod profile;
 pub mod quote;
 pub mod rate;
