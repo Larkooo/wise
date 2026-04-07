@@ -89,7 +89,7 @@ pub enum PermissionsCmd {
 pub async fn run(cmd: CardCmd, ctx: &Ctx) -> Result<()> {
     match cmd {
         CardCmd::List { profile } => {
-            let p = require_profile(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
             let v: Value = ctx
                 .client
                 .get(&format!("/v3/spend/profiles/{p}/cards"))
@@ -97,7 +97,8 @@ pub async fn run(cmd: CardCmd, ctx: &Ctx) -> Result<()> {
             output::print(&v, ctx.output());
         }
         CardCmd::Get { card_token, profile } => {
-            let p = require_profile(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
+            ctx.check_card(&card_token)?;
             let v: Value = ctx
                 .client
                 .get(&format!("/v3/spend/profiles/{p}/cards/{card_token}"))
@@ -109,7 +110,8 @@ pub async fn run(cmd: CardCmd, ctx: &Ctx) -> Result<()> {
             status,
             profile,
         } => {
-            let p = require_profile(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
+            ctx.check_card(&card_token)?;
             ctx.confirm_prod("change card status")?;
             let body = json!({ "status": status.as_str() });
             let v: Value = ctx
@@ -122,7 +124,8 @@ pub async fn run(cmd: CardCmd, ctx: &Ctx) -> Result<()> {
             output::print(&v, ctx.output());
         }
         CardCmd::ResetPinCount { card_token, profile } => {
-            let p = require_profile(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
+            ctx.check_card(&card_token)?;
             let v: Value = ctx
                 .client
                 .post(
@@ -134,7 +137,8 @@ pub async fn run(cmd: CardCmd, ctx: &Ctx) -> Result<()> {
         }
         CardCmd::Permissions { cmd } => match cmd {
             PermissionsCmd::Get { card_token, profile } => {
-                let p = require_profile(ctx, profile)?;
+                let p = ctx.resolve_profile(profile)?;
+                ctx.check_card(&card_token)?;
                 let v: Value = ctx
                     .client
                     .get(&format!(
@@ -148,7 +152,8 @@ pub async fn run(cmd: CardCmd, ctx: &Ctx) -> Result<()> {
                 permissions,
                 profile,
             } => {
-                let p = require_profile(ctx, profile)?;
+                let p = ctx.resolve_profile(profile)?;
+                ctx.check_card(&card_token)?;
                 ctx.confirm_prod("update card permissions")?;
                 let body: Value = serde_json::from_str(&permissions)
                     .map_err(|e| anyhow::anyhow!("--permissions must be a JSON object: {e}"))?;
@@ -168,10 +173,3 @@ pub async fn run(cmd: CardCmd, ctx: &Ctx) -> Result<()> {
     Ok(())
 }
 
-fn require_profile(ctx: &Ctx, override_profile: Option<i64>) -> Result<i64> {
-    if let Some(p) = override_profile {
-        Ok(p)
-    } else {
-        ctx.require_profile()
-    }
-}

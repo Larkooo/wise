@@ -73,8 +73,11 @@ pub async fn run(cmd: RecipientCmd, ctx: &Ctx) -> Result<()> {
             size,
         } => {
             let mut params: Vec<(String, String)> = Vec::new();
-            let p = profile.or(ctx.config.default_profile);
-            if let Some(p) = p {
+            // resolve_profile is fail-fast: if a sandbox is active and the
+            // profile is restricted, this errors before any network call.
+            // If no profile is set anywhere, list everything (no filter).
+            if profile.is_some() || ctx.config.default_profile.is_some() {
+                let p = ctx.resolve_profile(profile)?;
                 params.push(("profile".into(), p.to_string()));
             }
             if let Some(c) = currency {
@@ -105,7 +108,8 @@ pub async fn run(cmd: RecipientCmd, ctx: &Ctx) -> Result<()> {
                 "ownedByCustomer": owned_by_customer,
                 "details": details_v,
             });
-            if let Some(p) = profile.or(ctx.config.default_profile) {
+            if profile.is_some() || ctx.config.default_profile.is_some() {
+                let p = ctx.resolve_profile(profile)?;
                 body["profile"] = json!(p);
             }
             let path = if refund {

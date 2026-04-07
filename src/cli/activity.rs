@@ -36,9 +36,7 @@ pub async fn run(cmd: ActivityCmd, ctx: &Ctx) -> Result<()> {
             until,
             size,
         } => {
-            let p = profile.or(ctx.config.default_profile).ok_or_else(|| {
-                anyhow::anyhow!("--profile required (or set default-profile)")
-            })?;
+            let p = ctx.resolve_profile(profile)?;
             let mut q: Vec<(String, String)> = vec![("size".into(), size.to_string())];
             if let Some(m) = monetary_resource_type {
                 q.push(("monetaryResourceType".into(), m));

@@ -67,7 +67,7 @@ pub enum CardOrderCmd {
 pub async fn run(cmd: CardOrderCmd, ctx: &Ctx) -> Result<()> {
     match cmd {
         CardOrderCmd::Programs { profile } => {
-            let p = require_profile(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
             let v: Value = ctx
                 .client
                 .get(&format!("/v3/spend/profiles/{p}/card-orders/availability"))
@@ -81,7 +81,7 @@ pub async fn run(cmd: CardOrderCmd, ctx: &Ctx) -> Result<()> {
             cardholder_profile_id,
             profile,
         } => {
-            let p = require_profile(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
             ctx.confirm_prod("create a card order")?;
             let body_v: Value = if let Some(b) = body {
                 serde_json::from_str(&b).context("--body must be JSON")?
@@ -105,7 +105,7 @@ pub async fn run(cmd: CardOrderCmd, ctx: &Ctx) -> Result<()> {
             output::print(&v, ctx.output());
         }
         CardOrderCmd::List { profile } => {
-            let p = require_profile(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
             let v: Value = ctx
                 .client
                 .get(&format!("/v3/spend/profiles/{p}/card-orders"))
@@ -116,7 +116,7 @@ pub async fn run(cmd: CardOrderCmd, ctx: &Ctx) -> Result<()> {
             card_order_id,
             profile,
         } => {
-            let p = require_profile(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
             let v: Value = ctx
                 .client
                 .get(&format!("/v3/spend/profiles/{p}/card-orders/{card_order_id}"))
@@ -127,7 +127,7 @@ pub async fn run(cmd: CardOrderCmd, ctx: &Ctx) -> Result<()> {
             card_order_id,
             profile,
         } => {
-            let p = require_profile(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
             let v: Value = ctx
                 .client
                 .get(&format!(
@@ -140,7 +140,7 @@ pub async fn run(cmd: CardOrderCmd, ctx: &Ctx) -> Result<()> {
             card_order_id,
             profile,
         } => {
-            let p = require_profile(ctx, profile)?;
+            let p = ctx.resolve_profile(profile)?;
             ctx.confirm_prod("cancel a card order")?;
             let body = json!({ "status": "CANCELLED" });
             let v: Value = ctx
@@ -156,10 +156,3 @@ pub async fn run(cmd: CardOrderCmd, ctx: &Ctx) -> Result<()> {
     Ok(())
 }
 
-fn require_profile(ctx: &Ctx, override_profile: Option<i64>) -> Result<i64> {
-    if let Some(p) = override_profile {
-        Ok(p)
-    } else {
-        ctx.require_profile()
-    }
-}
