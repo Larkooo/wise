@@ -7,12 +7,14 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use serde_json::json;
 
+mod agent;
 mod cli;
 mod client;
 mod config;
 mod output;
 mod sandbox;
 
+use cli::agent::AgentCmd;
 use cli::sandbox::SandboxCmd;
 use cli::{
     activity::ActivityCmd, auth::AuthCmd, balance::BalanceCmd, card::CardCmd,
@@ -129,6 +131,11 @@ enum TopCmd {
         #[command(subcommand)]
         cmd: SandboxCmd,
     },
+    /// Manual-paste agent card flow (see AGENT.md).
+    Agent {
+        #[command(subcommand)]
+        cmd: AgentCmd,
+    },
 }
 
 #[tokio::main]
@@ -199,6 +206,7 @@ async fn dispatch(cmd: TopCmd, ctx: &Ctx) -> Result<()> {
         TopCmd::Simulate { cmd } => cli::simulate::run(cmd, ctx).await,
         TopCmd::Jose { cmd } => cli::jose::run(cmd, ctx).await,
         TopCmd::Sandbox { cmd } => cli::sandbox::run(cmd, ctx).await,
+        TopCmd::Agent { cmd } => cli::agent::run(cmd, ctx).await,
     };
 
     if let Some(handle) = audit_handle {
@@ -237,6 +245,7 @@ fn top_cmd_path(cmd: &TopCmd) -> String {
         TopCmd::Simulate { cmd } => Cmd::Simulate(cmd),
         TopCmd::Jose { cmd } => Cmd::Jose(cmd),
         TopCmd::Sandbox { cmd } => Cmd::Sandbox(cmd),
+        TopCmd::Agent { cmd } => Cmd::Agent(cmd),
     })
 }
 
@@ -262,6 +271,7 @@ fn top_cmd_args(cmd: &TopCmd) -> Vec<(String, String)> {
         TopCmd::Simulate { cmd } => Cmd::Simulate(cmd),
         TopCmd::Jose { cmd } => Cmd::Jose(cmd),
         TopCmd::Sandbox { cmd } => Cmd::Sandbox(cmd),
+        TopCmd::Agent { cmd } => Cmd::Agent(cmd),
     })
 }
 

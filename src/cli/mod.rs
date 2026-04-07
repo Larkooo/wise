@@ -10,6 +10,7 @@ use crate::output::OutputFormat;
 use crate::sandbox::Sandbox;
 
 pub mod activity;
+pub mod agent;
 pub mod auth;
 pub mod balance;
 pub mod card;

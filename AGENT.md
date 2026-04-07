@@ -280,9 +280,9 @@ Documented as a v2 gap.
 | 2     | Sandbox primitive: TOML schema, glob matcher, dispatch + resource gates, audit log writer, rate limiter                                  | **done**    |
 | 3     | `wise sandbox new/list/show/check/edit/delete/shell/audit` commands                                                                      | **done**    |
 | 4     | Per-command conditions (rate limit, `--justify`, audit) + `--justify` global flag + `--sudo` `deny` mode                                 | **done**    |
-| 5a    | `wise agent init` — interactive wizard that creates the *sandbox + spend limits scaffold*. Card creation is delegated to wise.com.       | pending     |
-| 5b    | `wise agent paste` (Option C) — local-encrypt PAN/CVV/expiry to a keychain-stored RSA keypair                                            | pending     |
-| 6a    | `wise agent fetch` — decrypts the local-cached PAN under sandbox + audit + approval gates                                                | pending     |
+| 5a    | `wise agent init` — scaffold sandbox + spend caps. Card creation is delegated to wise.com (personal tokens cannot reach the API).        | **done**    |
+| 5b    | `wise agent paste` (Option C) — Luhn-validated PAN/CVV/expiry/cardholder, stored in OS keychain under per-sandbox entry                  | **done**    |
+| 6a    | `wise agent fetch` — returns full card under the dispatch gate (rate limit + `--justify` + audit), sandbox name derived from active ctx | **done**    |
 | 6b    | `wise agent fetch` — JWE round-trip to Wise (Option B, requires partner OAuth user token; out of scope until that's provisioned)         | deferred    |
 | 7     | Escalation modes: `tty` (terminal y/N) and `command` (external approver via stdin JSON)                                                  | pending     |
 | 8     | Watchdog daemon (v2)                                                                                                                     | deferred    |
@@ -310,27 +310,37 @@ Documented as a v2 gap.
 ## Minimal viable agent flow (what the user does)
 
 ```bash
-# One-time setup (interactive — confirms each destructive step)
-wise agent init
-# → creates "Agent Ops" business sub-profile
-# → issues virtual USD card, status=FROZEN
-# → applies spend limits: $20/tx, $50/day, $500/month, $1000 lifetime
+# 1. Issue a virtual card on wise.com (the API path needs partner OAuth).
+
+# 2. Scaffold the sandbox + spend caps locally.
+wise agent init coding-agent --profile <profile-id> --rate-limit 5/hour
 # → writes ~/.config/wise/sandboxes/coding-agent.toml
-# → stores agent token in keyring as wise-agent:production
-# → prints next-steps
+# → allow: balance.{list,get}, card.{get,freeze}, rate.get, currency.list,
+#          docs.ask, agent.{status,fetch}
+# → deny:  agent.{init,paste,rotate,panic}, card.unfreeze,
+#          card.permissions.set, transfer.*, balance.{move,topup,…}
+# → conditions on agent.fetch: rate_limit + require_justification + audit
 
-# Each session
-WISE_SANDBOX=coding-agent wise card get tok_...    # what's the card doing?
-WISE_SANDBOX=coding-agent wise card freeze tok_... # belt-and-braces
+# 3. Paste the PAN/CVV/expiry/cardholder once. Reads from stdin without echo.
+wise agent paste --sandbox coding-agent
+# → Luhn-validates the PAN, validates CVV/expiry, stores in OS keychain.
 
-# The agent just needs WISE_SANDBOX in its env
-# Its prompt template runs commands like:
+# 4. Sanity-check.
+wise agent status --sandbox coding-agent
+# → masked PAN ("4111********1111"), expiry, cardholder, rate_limit.
+
+# 5. Hand the agent its environment.
+export WISE_SANDBOX=coding-agent
+# Its prompt template can now run commands like:
 #   wise balance list
 #   wise card get tok_...
-#   wise agent fetch tok_... --justify "Stripe checkout for vercel pro plan"
+#   wise agent fetch --justify "Stripe checkout for vercel pro plan"
 # Anything outside the allow-list errors before it touches the network.
+# `agent.fetch` is rate-limited, requires --justify, and writes a UUID-
+# correlated audit line to the sandbox audit log on every attempt.
 
-# If anything looks wrong
-wise card freeze tok_...     # from the human side, no sandbox active
-wise agent rotate            # issue new card, block the old one
+# 6. If anything looks wrong:
+wise card freeze tok_...                      # human side, no sandbox active
+wise agent rotate --sandbox coding-agent -y   # wipe stored card, re-paste
+wise agent panic --sandbox coding-agent       # emergency wipe, no confirm
 ```

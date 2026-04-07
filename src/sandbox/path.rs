@@ -8,6 +8,7 @@
 // deciding what its sandbox path is.
 
 use crate::cli::activity::ActivityCmd;
+use crate::cli::agent::AgentCmd;
 use crate::cli::auth::AuthCmd;
 use crate::cli::balance::BalanceCmd;
 use crate::cli::card::{CardCmd, PermissionsCmd};
@@ -45,6 +46,7 @@ pub enum Cmd<'a> {
     Simulate(&'a SimulateCmd),
     Jose(&'a JoseCmd),
     Sandbox(&'a SandboxCmd),
+    Agent(&'a AgentCmd),
 }
 
 /// Render a command into its canonical dot path. Stable strings — they
@@ -69,6 +71,7 @@ pub fn command_path(cmd: Cmd<'_>) -> String {
         Cmd::Simulate(c) => format!("simulate.{}", simulate_leaf(c)),
         Cmd::Jose(c) => format!("jose.{}", jose_leaf(c)),
         Cmd::Sandbox(c) => format!("sandbox.{}", sandbox_leaf(c)),
+        Cmd::Agent(c) => format!("agent.{}", agent_leaf(c)),
     }
 }
 
@@ -252,5 +255,16 @@ fn sandbox_leaf(c: &SandboxCmd) -> &'static str {
         SandboxCmd::Check { .. } => "check",
         SandboxCmd::Shell { .. } => "shell",
         SandboxCmd::Audit { .. } => "audit",
+    }
+}
+
+fn agent_leaf(c: &AgentCmd) -> &'static str {
+    match c {
+        AgentCmd::Init { .. } => "init",
+        AgentCmd::Paste { .. } => "paste",
+        AgentCmd::Status { .. } => "status",
+        AgentCmd::Fetch { .. } => "fetch",
+        AgentCmd::Rotate { .. } => "rotate",
+        AgentCmd::Panic { .. } => "panic",
     }
 }
