@@ -2,9 +2,9 @@
 //
 // We've verified the endpoint shape: it returns text/event-stream with three
 // event types in the JSON payloads — `messageId`, `sources`, and chunked
-// `answer`. We stream `answer` chunks live to stdout (so the agent can show
-// progress) and emit a final JSON summary with `messageId` + `sources` to
-// stderr (or to stdout in --no-stream mode).
+// `answer`. Streaming mode prints the answer to stdout for humans; sources
+// are off by default (they're noisy in a terminal) but available with
+// `--sources` (pretty list to stderr) or `--no-stream` (full JSON blob).
 
 use anyhow::{Context as _, Result};
 use clap::Subcommand;
@@ -29,6 +29,10 @@ pub enum DocsCmd {
         /// Print the full response as a single JSON blob instead of streaming.
         #[arg(long)]
         no_stream: bool,
+        /// Show source URLs after the streamed answer (off by default — they
+        /// clutter the terminal). `--no-stream` always includes them.
+        #[arg(long)]
+        sources: bool,
         /// Optional locale.
         #[arg(long, default_value = "default_locale")]
         locale: String,
@@ -41,6 +45,7 @@ pub async fn run(cmd: DocsCmd, ctx: &Ctx) -> Result<()> {
             question,
             history,
             no_stream,
+            sources: show_sources,
             locale,
         } => {
             let history_v: Value = if let Some(path) = history {
@@ -88,18 +93,18 @@ pub async fn run(cmd: DocsCmd, ctx: &Ctx) -> Result<()> {
                     ctx.output(),
                 );
             } else {
-                // Stream answer chunks to stdout, then emit a JSON tail to stderr.
+                // Stream answer chunks to stdout. Sources rendered to stderr
+                // only when explicitly requested — terminal output stays clean.
                 let mut stdout = tokio::io::stdout();
                 let sources = sse::stream_answer_to(resp, &mut stdout).await?;
                 use tokio::io::AsyncWriteExt;
                 stdout.write_all(b"\n").await.ok();
                 stdout.flush().await.ok();
-                if !sources.is_empty() {
-                    let summary = json!({ "sources": sources });
-                    eprintln!(
-                        "{}",
-                        serde_json::to_string(&summary).unwrap_or_default()
-                    );
+                if show_sources && !sources.is_empty() {
+                    eprintln!("\nsources:");
+                    for s in &sources {
+                        eprintln!("  · {} — https://docs.wise.com{}", s.title, s.url);
+                    }
                 }
             }
             Ok(())

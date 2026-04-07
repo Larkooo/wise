@@ -31,6 +31,13 @@ url = "2"
 base64 = "0.22"
 atty = "0.2"
 
+# JWE (RSA-OAEP-256 + A256GCM) for sensitive card details and SCA endpoints.
+# Pure-Rust crypto stack — no openssl bindings.
+rsa = { version = "0.9", features = ["sha2"] }
+aes-gcm = "0.10"
+sha2 = "0.10"
+rand = "0.8"
+
 [profile.release]
 opt-level = 3
 lto = "thin"
