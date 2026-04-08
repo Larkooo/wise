@@ -14,10 +14,23 @@ use std::path::{Path, PathBuf};
 
 const KEYRING_SERVICE: &str = "wise-cli";
 
+/// Root-owned override location for the lockdown deployment recipe (see
+/// AGENT.md). If `/etc/wise/config.toml` exists and sets `require_sandbox
+/// = true`, it always wins over the user config — that is the whole point
+/// of lockdown, so an agent running under uid 1001 cannot disable it from
+/// its own home directory.
+const SYSTEM_CONFIG_PATH: &str = "/etc/wise/config.toml";
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub env: Option<Env>,
     pub default_profile: Option<i64>,
+    /// Lockdown mode: when true, every CLI invocation must run inside an
+    /// active sandbox. Set this in `/etc/wise/config.toml` (root-owned) to
+    /// pin an agent to a specific sandbox policy on a VPS — the user-level
+    /// config can never turn it back off.
+    #[serde(default)]
+    pub require_sandbox: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
@@ -43,7 +56,26 @@ impl std::fmt::Display for Env {
 }
 
 impl Config {
+    /// Load the user-level config, then merge in any system-level overrides
+    /// from `/etc/wise/config.toml`. The system file *only* contributes the
+    /// lockdown-relevant fields (currently just `require_sandbox`) — other
+    /// fields stay user-controlled so a developer's `wise config set
+    /// default-profile …` keeps working under lockdown. The system file's
+    /// `require_sandbox = true` cannot be overridden by the user file.
     pub fn load() -> Result<Self> {
+        let mut cfg = Self::load_user()?;
+        if let Some(sys) = Self::load_system()? {
+            // Lockdown is sticky-on: once root sets it, the user file can't
+            // turn it back off. We deliberately don't merge any other field
+            // from the system file — it exists solely to pin lockdown.
+            if sys.require_sandbox {
+                cfg.require_sandbox = true;
+            }
+        }
+        Ok(cfg)
+    }
+
+    fn load_user() -> Result<Self> {
         let path = Self::path()?;
         if !path.exists() {
             return Ok(Self::default());
@@ -52,6 +84,18 @@ impl Config {
             .with_context(|| format!("reading {}", path.display()))?;
         let cfg = toml::from_str(&s).with_context(|| format!("parsing {}", path.display()))?;
         Ok(cfg)
+    }
+
+    fn load_system() -> Result<Option<Self>> {
+        let path = Path::new(SYSTEM_CONFIG_PATH);
+        if !path.exists() {
+            return Ok(None);
+        }
+        let s = fs::read_to_string(path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let cfg = toml::from_str(&s)
+            .with_context(|| format!("parsing {}", path.display()))?;
+        Ok(Some(cfg))
     }
 
     pub fn save(&self) -> Result<()> {
