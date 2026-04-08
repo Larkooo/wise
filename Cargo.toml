@@ -41,6 +41,10 @@ rand = "0.8"
 # No-echo terminal input for `wise agent paste` (PAN/CVV/expiry).
 rpassword = "7"
 
+[target.'cfg(unix)'.dependencies]
+# `geteuid` for the lockdown ownership check on sandbox policy files.
+libc = "0.2"
+
 [profile.release]
 opt-level = 3
 lto = "thin"

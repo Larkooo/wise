@@ -106,11 +106,31 @@ impl Ctx {
         // the CLI before any command runs. We deliberately do this here
         // (not in dispatch) so even commands that don't go through the
         // dispatcher (like `--help` resolution) see the same error path.
+        //
+        // When `require_sandbox = true` (lockdown mode, see AGENT.md), we
+        // hand `load_with_lockdown` so the policy file's ownership is
+        // verified — anything writable by the calling uid is rejected.
         let sandbox = if let Some(name) = args.sandbox.clone() {
-            Some(Sandbox::load(&name).context("loading active sandbox")?)
+            Some(
+                Sandbox::load_with_lockdown(&name, config.require_sandbox)
+                    .context("loading active sandbox")?,
+            )
         } else {
             None
         };
+
+        // Lockdown gate: when `/etc/wise/config.toml` sets `require_sandbox
+        // = true`, every command must run inside an active sandbox. This
+        // closes the "agent unsets WISE_SANDBOX and runs wise transfer
+        // create" bypass on a properly-isolated VPS deployment, because
+        // the agent uid cannot rewrite /etc/wise/config.toml.
+        if config.require_sandbox && sandbox.is_none() {
+            anyhow::bail!(
+                "lockdown_active: this installation requires an active sandbox \
+                 (set WISE_SANDBOX=<name> or pass --sandbox <name>). See AGENT.md \
+                 \"Deploying on a VPS\" for the deployment recipe."
+            );
+        }
 
         let client = WiseClient::new(env, token)?;
         Ok(Self {
