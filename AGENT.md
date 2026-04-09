@@ -14,7 +14,10 @@ primitive that makes it safe is the [`SANDBOX.md`](SANDBOX.md) — a generic
 policy layer that the agent's `wise` invocations are filtered through. This
 file references the sandbox; it does not duplicate it.
 
-Status: **design locked, Phase 1 (JWE module) in progress.**
+This is an advanced, opinionated workflow layered on top of the general
+`wise` CLI. It should not define the product's top-level positioning.
+
+Status: **manual-paste agent flow is implemented; partner-OAuth and external-approver work remains pending.**
 
 ---
 
@@ -80,13 +83,14 @@ allow-list.
 
 ### L4 — Sensitive detail handling
 
-Three options, in order of preference. **v1 ships option 1 only.**
+Three options, in order of preference. **Today the CLI ships option 2 via the
+manual-paste flow; option 1 remains gated on partner OAuth.**
 
 1. **No-cache.** Fetch via JWE on-demand each time the agent needs to
    charge. Zero-resting-secret. EU users see one SCA challenge per fetch.
-2. **Short-lived cache.** Fetch once, store in keyring under a key derived
-   from the token, wipe after `--cache 5m` via a tokio task. Some risk
-   window, lower friction.
+2. **Keychain-backed storage.** Store PAN/CVV/expiry in the OS keychain
+   under a per-sandbox entry, then fetch on demand under audit + rate-limit
+   + justification controls. This is the manual-paste flow that ships now.
 3. **Memory-only daemon.** `wise-agentd` holds details in `mlock`'d memory;
    CLI talks over a unix socket with peer-cred check. Most secure, biggest
    engineering cost.
@@ -231,12 +235,12 @@ keychain, handles refresh. Unblocks every card endpoint **if** Wise grants
 client credentials. Tracked as a future phase pending partner conversation.
 
 #### Option C — manual-paste flow (shipping now)
-The user pastes the PAN/CVV/expiry once, encrypted at rest by the JWE
-module to a CLI-managed RSA keypair stored in the OS keychain. `wise agent
-fetch` decrypts on demand under sandbox + audit + approval gates. The CLI
-never talks to Wise's sensitive endpoints. The PAN ends up at rest on the
-machine (option L4-2 in this document) — defensible *only* with the full
-sandbox + audit + escalation stack in place. Ships in PR #3.
+The user pastes the PAN/CVV/expiry once and the CLI stores it in the OS
+keychain under a per-sandbox entry. `wise agent fetch` reads it back under
+sandbox + audit + approval gates. The CLI never talks to Wise's sensitive
+endpoints. The PAN ends up at rest on the machine (option L4-2 in this
+document) — defensible *only* with the full sandbox + audit + escalation
+stack in place.
 
 ### JWE is mandatory
 Wise's `/twcard-data/v1/sensitive-card-data/details` only accepts
@@ -302,8 +306,8 @@ Documented as a v2 gap.
   and pre-authorizing nothing.
 - **No silent retries on declined transactions.** Decline → log → exit.
   The agent must surface the decline to the user, not loop.
-- **No card-detail caching beyond a single call** in v1. This is the
-  single biggest knob and we want to ship the boring/safe version first.
+- **No memory-only daemon in v1.** `wise-agentd` stays deferred until the
+  keychain-backed flow proves insufficient.
 
 ---
 
