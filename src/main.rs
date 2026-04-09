@@ -1,4 +1,4 @@
-// wise — agent-friendly CLI for the Wise Platform API.
+// wise — CLI for the Wise Platform API.
 //
 // Entry point: parses the top-level CLI, builds a WiseClient, dispatches to
 // subcommands. Each subcommand module owns its own clap enum and run() fn.
@@ -27,9 +27,10 @@ use cli::{Ctx, GlobalArgs};
 #[derive(Debug, Parser)]
 #[command(
     name = "wise",
-    about = "Agent-friendly CLI for the Wise Platform API",
+    about = "CLI for the Wise Platform API",
     long_about = "Run Wise Platform API operations from the command line.\n\
-                  Sandbox by default; use --env production for live operations.\n\
+                  Defaults to the Wise sandbox API environment; use --env production for live operations.\n\
+                  Use --sandbox <name> to activate optional policy controls for automation.\n\
                   Output is JSON by default; use --pretty for indented JSON.\n\
                   Run `wise docs ask \"...\"` to query the live Wise docs.",
     version

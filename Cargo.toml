@@ -2,7 +2,7 @@
 name = "wise"
 version = "0.1.0"
 edition = "2021"
-description = "Agent-friendly CLI for the Wise Platform API"
+description = "CLI for the Wise Platform API"
 license = "MIT"
 
 [[bin]]

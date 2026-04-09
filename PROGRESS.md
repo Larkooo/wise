@@ -1,20 +1,23 @@
-# wise — agent-friendly CLI for Wise Platform
+# wise — CLI for the Wise Platform API
 
-A Rust CLI that wraps the Wise Platform API so an agent can run it directly:
-authenticate once, then send money, manage profiles, issue cards, subscribe to
-webhooks, and ask the docs anything — all without writing HTTP by hand.
+A Rust CLI that wraps the Wise Platform API so scripts, operators, and agents
+can authenticate once, then send money, manage profiles, issue cards,
+subscribe to webhooks, and ask the docs anything without writing HTTP by hand.
+The core product is the general-purpose CLI; sandbox and agent flows are
+advanced layers on top, not the repo's primary identity.
 
 ## Goals
 
-- **Agent-first**: JSON output by default, stable exit codes, deterministic
-  flag-based UX, no interactive prompts unless requested.
-- **Safe by default**: sandbox is the default environment. Production
+- **Machine-friendly**: JSON output by default, stable exit codes,
+  deterministic flag-based UX, no interactive prompts unless requested.
+- **Safe for automation**: the Wise API sandbox environment is the default;
+  optional CLI sandboxes add policy controls for automation, and production
   money-moving operations require `--yes` (or `WISE_YES=1`) to proceed.
 - **Comprehensive but pragmatic**: cover the high-value 80% of the API surface
   cleanly; stub the long tail of compliance/security/internal endpoints with
   clear "not implemented" errors that point at the docs.
 - **Self-documenting**: `wise docs ask "..."` wraps the public docs Q&A
-  endpoint so the agent can look things up live.
+  endpoint so users and agents can look things up live.
 
 ## Non-goals (v1)
 
@@ -23,7 +26,7 @@ webhooks, and ask the docs anything — all without writing HTTP by hand.
   with a doc link.
 - FaceTec biometric flows.
 - Push provisioning for Apple/Google Pay.
-- Hosted-KYC web UI integration (we expose the API surface; the user/agent
+- Hosted-KYC web UI integration (we expose the API surface; the user or agent
   handles the redirect themselves).
 - 3DS challenge result UI.
 
@@ -52,8 +55,11 @@ src/
     mod.rs                WiseClient: env, http, auth headers, error mapping
     error.rs              ApiError + WiseError
     sse.rs                Server-Sent Events parser for /_ask-ai
+    jose.rs               JWE helpers for sensitive-card experiments
+  agent/                  optional manual-paste agent-card flow
   config.rs               TOML config + keyring credential store
   output.rs               JSON / pretty rendering
+  sandbox/                optional policy gates for automation
 ```
 
 ### Tech choices
@@ -204,7 +210,7 @@ wise simulate
 
 ## Scope tiers
 
-### Tier 1 — implement now (must work for an agent to do useful work)
+### Tier 1 — implement now (must cover the core Wise workflows)
 - [x] auth: login (personal token), logout, status, whoami
 - [x] config
 - [x] profile: list, get, current

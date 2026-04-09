@@ -1,25 +1,25 @@
-# wise sandbox — agent-scoped CLI policies
+# wise sandbox — optional CLI policies for automation
 
 > A sandbox is a TOML policy that constrains what `wise` commands can do.
 > Set `WISE_SANDBOX=<name>` (or pass `--sandbox <name>`) and every subsequent
 > CLI invocation in that environment is filtered through the policy.
 
-The motivating use case is **giving an LLM agent its own scoped Wise access**
-without inventing a parallel command tree. The agent runs the regular `wise`
-CLI; the sandbox decides what that means.
+The motivating use case is **giving automation, including LLM agents, scoped
+Wise access** without inventing a parallel command tree. The caller runs the
+regular `wise` CLI; the sandbox decides what that means.
 
 This document is the design + safety contract for the sandbox primitive.
 The agent-card use case that sits on top of it is documented separately in
 [`AGENT.md`](AGENT.md).
 
-Status: **design locked, Phase 2 (sandbox primitive) not yet implemented.**
+Status: **implemented in the CLI; `tty` and `command` escalation modes remain pending.**
 
 ---
 
-## Why a generic sandbox instead of a `wise agent` subtree
+## Why a generic sandbox instead of a separate automation subtree
 
-Earlier drafts of the agent design carved out `wise agent ...` as its own
-command group. The sandbox model is strictly better:
+Earlier drafts carved out `wise agent ...` as its own command group. The
+sandbox model is strictly better:
 
 1. **Reuses the existing CLI.** Agent calls `wise balance get` like any
    other caller; sandbox handles the policy. No parallel tree.
@@ -379,6 +379,6 @@ on a server with no human at the keyboard.
 | 4     | Audit log writer + rate-limit ledger + condition evaluation            |
 | 7     | Escalation modes: `deny`, `tty`, `command`                             |
 
-The agent-card use case ([`AGENT.md`](AGENT.md)) layers on top of this and
-contributes phases 1 (JWE module), 5 (`wise agent init`), and 6
-(`wise agent fetch`).
+The agent-card flow in [`AGENT.md`](AGENT.md) is one consumer of this
+primitive; the broader CLI should treat sandboxing as an optional safety layer,
+not its primary identity.
