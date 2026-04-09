@@ -29,7 +29,7 @@ use cli::{Ctx, GlobalArgs};
     name = "wise",
     about = "CLI for the Wise Platform API",
     long_about = "Run Wise Platform API operations from the command line.\n\
-                  Defaults to the Wise sandbox API environment; use --env production for live operations.\n\
+                  Select the target API environment with --env or `wise config set env ...`.\n\
                   Use --sandbox <name> to activate optional policy controls for automation.\n\
                   Output is JSON by default; use --pretty for indented JSON.\n\
                   Run `wise docs ask \"...\"` to query the live Wise docs.",
@@ -143,8 +143,9 @@ enum TopCmd {
 async fn main() {
     let cli = Cli::parse();
     init_tracing(cli.global.verbose);
+    let require_env = top_cmd_requires_env(&cli.cmd);
 
-    let ctx = match Ctx::new(cli.global.clone()).await {
+    let ctx = match Ctx::new(cli.global.clone(), require_env).await {
         Ok(c) => c,
         Err(e) => {
             output::print_error(&e, &cli.global);
@@ -222,6 +223,28 @@ async fn dispatch(cmd: TopCmd, ctx: &Ctx) -> Result<()> {
     }
 
     result
+}
+
+fn top_cmd_requires_env(cmd: &TopCmd) -> bool {
+    match cmd {
+        TopCmd::Config { .. } => false,
+        TopCmd::Sandbox { .. } => false,
+        TopCmd::Docs { .. } => false,
+        TopCmd::Agent { cmd } => !matches!(
+            cmd,
+            AgentCmd::Init { .. }
+                | AgentCmd::Paste { .. }
+                | AgentCmd::Status { .. }
+                | AgentCmd::Fetch { .. }
+                | AgentCmd::Rotate { .. }
+                | AgentCmd::Panic { .. }
+        ),
+        TopCmd::Jose { cmd } => !matches!(
+            cmd,
+            JoseCmd::Encrypt { .. } | JoseCmd::Decrypt { .. }
+        ),
+        _ => true,
+    }
 }
 
 /// Render the top-level command's sandbox path. The thin wrappers in

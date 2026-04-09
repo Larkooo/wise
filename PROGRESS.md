@@ -92,11 +92,12 @@ A "token" can be one of:
 
 ### Environments
 
-- **Sandbox (default)**: `https://api.wise-sandbox.com`, `https://docs.wise.com`
+- **Sandbox**: `https://api.wise-sandbox.com`, `https://docs.wise.com`
 - **Production**: `https://api.wise.com`, `https://docs.wise.com`
 
-Switch with `--env production`, `WISE_ENV=production`, or
-`wise config set env production`.
+Select the target environment with `--env ...`, `WISE_ENV=...`, or
+`wise config set env sandbox|production`. If no environment is selected,
+API-affecting commands fail with a clear error instead of silently choosing one.
 
 ### Output
 

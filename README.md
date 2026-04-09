@@ -40,14 +40,25 @@ cargo build --release
 
 ## Quick Start
 
-Authenticate with a Wise API token:
+Pick an API environment once:
+
+```bash
+wise config set env production
+```
+
+Or use the Wise test environment:
+
+```bash
+wise config set env sandbox
+```
+
+Authenticate with a Wise API token for that environment:
 
 ```bash
 wise auth login --token <token>
 ```
 
-By default, the CLI targets the Wise sandbox API environment. Switch to
-production explicitly when needed:
+You can also override the configured environment per command:
 
 ```bash
 wise --env production profile list
@@ -85,7 +96,7 @@ Useful output flags:
 
 There are two different sandbox concepts in this repo:
 
-- the Wise API sandbox environment, selected with `--env sandbox`
+- the Wise API sandbox environment, selected explicitly with `--env sandbox`
 - the CLI policy sandbox, activated with `--sandbox <name>` or `WISE_SANDBOX`
 
 The CLI policy sandbox is off unless you opt into it. It is intended for

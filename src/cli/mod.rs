@@ -89,17 +89,23 @@ pub struct Ctx {
 }
 
 impl Ctx {
-    pub async fn new(args: GlobalArgs) -> Result<Self> {
+    pub async fn new(args: GlobalArgs, require_env: bool) -> Result<Self> {
         let config = Config::load().context("loading config")?;
-        let env = args.env.or(config.env).unwrap_or(Env::Sandbox);
+        let selected_env = resolve_env(args.env, config.env, require_env)?;
+        // For local-only commands we still construct a client so the rest of
+        // the CLI can keep a uniform context shape, but we don't treat that
+        // fallback as a user-visible default environment.
+        let env = selected_env.unwrap_or(Env::Sandbox);
 
-        // Token may be unset for `wise auth login` and `wise docs ask` —
-        // construct the client anyway and let auth-required calls fail at
-        // request time.
+        // Token may be unset for `wise auth login`, `wise docs ask`, and
+        // local-only commands. If no environment was selected, do not load
+        // any stored token implicitly.
         let token = if let Some(t) = args.token.clone() {
             Some(t)
+        } else if let Some(selected) = selected_env {
+            crate::config::load_token(selected).ok()
         } else {
-            crate::config::load_token(env).ok()
+            None
         };
 
         // Sandbox loading is fail-closed: a missing or invalid file aborts
@@ -198,5 +204,49 @@ impl Ctx {
             );
         }
         Ok(())
+    }
+}
+
+fn resolve_env(
+    arg_env: Option<Env>,
+    config_env: Option<Env>,
+    require_env: bool,
+) -> Result<Option<Env>> {
+    let env = arg_env.or(config_env);
+    if env.is_none() && require_env {
+        anyhow::bail!(
+            "no environment selected — pass --env sandbox|production, set WISE_ENV, \
+             or run `wise config set env sandbox|production`"
+        );
+    }
+    Ok(env)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_env_prefers_cli_over_config() {
+        let env = resolve_env(Some(Env::Production), Some(Env::Sandbox), true).unwrap();
+        assert_eq!(env, Some(Env::Production));
+    }
+
+    #[test]
+    fn resolve_env_uses_config_when_present() {
+        let env = resolve_env(None, Some(Env::Sandbox), true).unwrap();
+        assert_eq!(env, Some(Env::Sandbox));
+    }
+
+    #[test]
+    fn resolve_env_allows_none_for_local_only_commands() {
+        let env = resolve_env(None, None, false).unwrap();
+        assert_eq!(env, None);
+    }
+
+    #[test]
+    fn resolve_env_errors_when_required_and_missing() {
+        let err = resolve_env(None, None, true).unwrap_err();
+        assert!(err.to_string().contains("no environment selected"));
     }
 }
